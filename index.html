@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Lost Rounds Drill</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Inter:wght@400;500;600&display=swap">
+<style>
+/* Layout: one full-height screen; a thin top bar, a stage (Street View / map) and a bottom action bar. */
+:root{
+  --bg:#0f1714; --panel:#17221e; --line:#2a3a33; --fg:#e8efe9; --muted:#93a59b;
+  --accent:#f2c230; --good:#4cc38a; --bad:#ef5a4c; --pin:#3d8bfd;
+  --display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  --body:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:14px/1.4 var(--body);display:flex;flex-direction:column;overflow:hidden;
+  padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+button,select,input,textarea{font:inherit;color:inherit}
+.bar{display:flex;align-items:center;gap:8px;padding:8px max(12px,env(safe-area-inset-left,0px)) 8px max(12px,env(safe-area-inset-right,0px));background:var(--panel);border-bottom:1px solid var(--line);flex-wrap:wrap}
+.brand{font-family:var(--display);font-size:20px;letter-spacing:.02em;text-transform:uppercase;margin-right:auto}
+.brand b{color:var(--accent)}
+.chip{font-variant-numeric:tabular-nums;font-size:12px;color:var(--muted);padding:3px 8px;border:1px solid var(--line);border-radius:999px;white-space:nowrap}
+.chip.hp{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 45%,transparent)}
+select{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:5px 8px;max-width:46vw}
+.stage{position:relative;flex:1;min-height:0}
+.view{position:absolute;inset:0}
+#sv iframe{width:100%;height:100%;border:0;display:block}
+#shield{position:absolute;inset:0;z-index:2;cursor:not-allowed}
+#shield.off{display:none}
+.mask{position:absolute;z-index:3;background:var(--bg);pointer-events:auto}
+#maskAddr{left:0;top:0;width:290px;height:90px;border-bottom-right-radius:12px}
+#maskLink{left:0;bottom:0;width:150px;height:26px}
+#map{background:#cfd8d3}
+.actions{display:flex;gap:8px;padding:10px max(12px,env(safe-area-inset-left,0px)) 10px max(12px,env(safe-area-inset-right,0px));background:var(--panel);border-top:1px solid var(--line);align-items:center}
+.btn{border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:12px 14px;font-weight:600;cursor:pointer;min-height:46px}
+.btn.primary{background:var(--accent);color:#1b1500;border-color:var(--accent);flex:1;font-family:var(--display);font-size:20px;text-transform:uppercase;letter-spacing:.04em;padding:8px 14px}
+.btn.primary:disabled{opacity:.45;cursor:default}
+.btn:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.result{position:absolute;left:max(10px,env(safe-area-inset-left,0px));right:max(10px,env(safe-area-inset-right,0px));top:10px;z-index:500;background:color-mix(in srgb,var(--panel) 94%,transparent);border:1px solid var(--line);border-radius:14px;padding:12px 14px;display:grid;gap:6px;max-width:520px;margin:0 auto}
+.score{font-family:var(--display);font-size:40px;line-height:1;font-variant-numeric:tabular-nums}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:baseline;color:var(--muted);font-size:13px}
+.row strong{color:var(--fg)}
+.result textarea{width:100%;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px;min-height:34px;height:34px;resize:vertical}
+.result a{color:var(--accent)}
+.legend{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:4px;vertical-align:-1px}
+.toast{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);z-index:600;background:var(--panel);border:1px solid var(--line);padding:6px 12px;border-radius:999px;font-size:12px;color:var(--muted);pointer-events:none}
+dialog{background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:14px;max-width:min(560px,92vw);width:100%;max-height:80vh;padding:16px}
+dialog::backdrop{background:rgba(0,0,0,.55)}
+dialog h2{font-family:var(--display);text-transform:uppercase;margin:0 0 8px;font-size:24px}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:13px}
+td,th{padding:5px 6px;border-bottom:1px solid var(--line);text-align:right}
+td:first-child,th:first-child{text-align:left}
+th{color:var(--muted);font-weight:500}
+.barcell{position:relative}
+.barcell span{position:absolute;left:0;top:30%;height:40%;background:color-mix(in srgb,var(--bad) 35%,transparent);border-radius:3px;z-index:0}
+.barcell em{position:relative;font-style:normal}
+.leaflet-container{font:12px var(--body)}
+@media (prefers-reduced-motion:no-preference){.btn{transition:transform .08s}.btn:active{transform:scale(.97)}}
+</style>
+</head>
+<body>
+<div class="bar">
+  <div class="brand">Lost <b>Rounds</b></div>
+  <select id="country" aria-label="Filter by country"><option value="">All countries</option></select>
+  <span class="chip" id="queueInfo">…</span>
+  <span class="chip hp" id="hpInfo" title="HP you lost in the real duel">−0 HP</span>
+  <button class="btn" id="statsBtn" style="min-height:0;padding:5px 10px">Stats</button>
+</div>
+
+<div class="stage">
+  <div class="view" id="sv">
+    <iframe id="frame" title="Street View" referrerpolicy="no-referrer-when-downgrade" allowfullscreen></iframe>
+    <div id="shield" title="No move: tap “Look around” to pan"></div>
+    <div class="mask" id="maskAddr"></div>
+    <div class="mask" id="maskLink"></div>
+  </div>
+  <div class="view" id="map" hidden></div>
+  <div class="result" id="result" hidden></div>
+  <div class="toast" id="toast" hidden></div>
+</div>
+
+<div class="actions">
+  <button class="btn" id="lookBtn">Look around</button>
+  <button class="btn" id="swapBtn">Map</button>
+  <button class="btn primary" id="mainBtn" disabled>Place a pin</button>
+</div>
+
+<dialog id="stats"><h2>Where you bleed HP</h2><div id="statsBody"></div>
+  <p style="color:var(--muted);font-size:12px">From your duels (rounds with more than 1,000 HP lost). “Drill avg” is your average score here, best attempt per round.</p>
+  <form method="dialog"><button class="btn">Close</button></form></dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const KEY = "lostrounds.v1";
+const DAY = 864e5;
+const INTERVALS = [1, 3, 7, 21, 60]; // days per level after a good guess
+const GOOD = 4000;                   // score that counts as "got it"
+const names = new Intl.DisplayNames(["en"], {type: "region"});
+const cname = c => { try { return names.of(c.toUpperCase()); } catch { return c.toUpperCase(); } };
+
+let rounds = [], cur = null, phase = "look", pin = null, layers = [], st = load();
+function load(){ try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } }
+function save(){ try { localStorage.setItem(KEY, JSON.stringify(st)); } catch {} }
+function toast(t){ const e=$("toast"); e.textContent=t; e.hidden=false; clearTimeout(toast.t); toast.t=setTimeout(()=>e.hidden=true,1800); }
+
+// ---- scoring (GeoGuessr world-map curve) ----
+function km(a, b){
+  const R=6371, r=x=>x*Math.PI/180, dLa=r(b[0]-a[0]), dLo=r(b[1]-a[1]);
+  const h=Math.sin(dLa/2)**2+Math.cos(r(a[0]))*Math.cos(r(b[0]))*Math.sin(dLo/2)**2;
+  return 2*R*Math.asin(Math.sqrt(h));
+}
+const score = d => Math.round(5000*Math.exp(-d/1492.7));
+const fmtKm = d => d < 1 ? Math.round(d*1000)+" m" : d < 100 ? d.toFixed(1)+" km" : Math.round(d).toLocaleString("en")+" km";
+
+// ---- queue: due repeats first, then new rounds (biggest HP loss first) ----
+function pick(){
+  const c = $("country").value, now = Date.now();
+  const pool = rounds.filter(r => !c || r.c === c);
+  const due = pool.filter(r => st[r.id] && st[r.id].due <= now).sort((a,b)=>st[a.id].due-st[b.id].due);
+  const fresh = pool.filter(r => !st[r.id]).sort((a,b)=>b.hp-a.hp);
+  $("queueInfo").textContent = `${due.length} due · ${fresh.length} new`;
+  if (due.length) return due[0];
+  if (fresh.length) return fresh[Math.floor(Math.random()*Math.min(20, fresh.length))];
+  return null;
+}
+
+// ---- map ----
+const map = L.map("map", {worldCopyJump:true, zoomControl:false, attributionControl:true}).setView([20, 0], 2);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+  {maxZoom:18, attribution:"© OpenStreetMap"}).addTo(map);
+L.control.zoom({position:"bottomright"}).addTo(map);
+const icon = col => L.divIcon({className:"", iconSize:[18,18], iconAnchor:[9,9],
+  html:`<div style="width:18px;height:18px;border-radius:50%;background:${col};border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.5)"></div>`});
+map.on("click", e => {
+  if (phase !== "guess") return;
+  if (pin) pin.setLatLng(e.latlng); else pin = L.marker(e.latlng, {icon: icon("var(--pin)")}).addTo(map);
+  $("mainBtn").disabled = false; $("mainBtn").textContent = "Lock in";
+});
+
+function show(view){
+  const isMap = view === "map";
+  $("map").hidden = !isMap; $("sv").hidden = isMap;
+  $("swapBtn").textContent = isMap ? "Street View" : "Map";
+  $("lookBtn").hidden = isMap;
+  if (isMap) setTimeout(()=>map.invalidateSize(), 0);
+}
+
+function next(){
+  layers.forEach(l => map.removeLayer(l)); layers = [];
+  if (pin){ map.removeLayer(pin); pin = null; }
+  $("result").hidden = true;
+  cur = pick();
+  if (!cur){ $("frame").removeAttribute("src"); $("mainBtn").disabled = true; $("mainBtn").textContent = "All done here"; toast("Nothing due. Pick another country or come back tomorrow."); return; }
+  phase = "guess";
+  $("hpInfo").textContent = `−${cur.hp.toLocaleString("en")} HP`;
+  $("frame").src = `https://www.google.com/maps/embed?pb=!4v1!6m8!1m7!1s${encodeURIComponent(cur.pano)}!2m2!1d${cur.lat}!2d${cur.lng}!3f${cur.h}!4f${cur.p}!5f0.78`;
+  $("shield").classList.remove("off"); $("lookBtn").textContent = "Look around";
+  $("mainBtn").disabled = true; $("mainBtn").textContent = "Place a pin";
+  map.setView([20, 0], 2);
+  show("sv");
+}
+
+function reveal(){
+  phase = "reveal";
+  const truth = [cur.lat, cur.lng], g = [pin.getLatLng().lat, pin.getLatLng().lng];
+  const d = km(g, truth), s = score(d);
+  const prev = st[cur.id] || {lvl:0, n:0, best:0, note:""};
+  const lvl = s >= GOOD ? Math.min(prev.lvl+1, INTERVALS.length) : 0;
+  const due = s >= GOOD ? Date.now() + INTERVALS[lvl-1]*DAY : Date.now() + 10*60e3;
+  st[cur.id] = {...prev, lvl, due, n: prev.n+1, best: Math.max(prev.best, s), last: s};
+  save();
+
+  const add = l => (layers.push(l.addTo(map)), l);
+  add(L.marker(truth, {icon: icon("var(--good)")}).bindTooltip("Actual"));
+  add(L.polyline([g, truth], {color:"#1b2b24", weight:2, dashArray:"6 6"}));
+  const pts = [g, truth];
+  if (cur.g){ add(L.marker(cur.g, {icon: icon("var(--bad)")}).bindTooltip("Your duel guess")); add(L.polyline([cur.g, truth], {color:"#ef5a4c", weight:1.5, opacity:.6})); pts.push(cur.g); }
+  if (cur.og){ add(L.circleMarker(cur.og, {radius:6, color:"#fff", weight:2, fillColor:"#8a6cff", fillOpacity:1}).bindTooltip("Opponent")); pts.push(cur.og); }
+  show("map"); 
+
+  const then = cur.g ? km(cur.g, truth) : null;
+  const verdict = then == null ? "" : d < then ? `<strong style="color:var(--good)">${fmtKm(then-d)} closer</strong> than in the duel` : `${fmtKm(d-then)} further than in the duel`;
+  const r = $("result");
+  r.innerHTML = `
+    <div class="row"><span class="score" style="color:${s>=GOOD?"var(--good)":s>=2500?"var(--accent)":"var(--bad)"}">${s.toLocaleString("en")}</span>
+      <span><strong>${fmtKm(d)}</strong> off · <strong>${cname(cur.c)}</strong></span></div>
+    <div class="row"><span>In the duel you scored ${cur.ms ?? "–"}${then!=null?` (${fmtKm(then)} off)`:""}, opponent ${cur.os ?? "–"}</span><span>${verdict}</span></div>
+    <div class="legend"><span><i class="dot" style="background:var(--pin)"></i>Now</span><span><i class="dot" style="background:var(--bad)"></i>Duel guess</span><span><i class="dot" style="background:#8a6cff"></i>Opponent</span><span><i class="dot" style="background:var(--good)"></i>Actual</span></div>
+    <label for="note" style="font-size:12px;color:var(--muted)">What gives it away? (saved on this device)</label>
+    <textarea id="note" placeholder="e.g. yellow sign backs, red-white bollards">${(prev.note||"").replace(/</g,"&lt;")}</textarea>
+    <div class="row"><a href="https://www.google.com/maps/@?api=1&map_action=pano&pano=${encodeURIComponent(cur.pano)}&heading=${cur.h}" target="_blank" rel="noopener">Open in Google Maps</a>
+      <span>${s>=GOOD ? `Back in ${INTERVALS[lvl-1]} day${INTERVALS[lvl-1]>1?"s":""}` : "Comes back in 10 min"} · ${cur.t} · ${cur.m}</span></div>`;
+  r.hidden = false;
+  map.fitBounds(L.latLngBounds(pts), {maxZoom: 9, paddingTopLeft:[30, r.offsetHeight + 40], paddingBottomRight:[30, 30]});
+  $("note").addEventListener("input", e => { st[cur.id].note = e.target.value; save(); });
+  $("mainBtn").disabled = false; $("mainBtn").textContent = "Next round";
+}
+
+$("mainBtn").onclick = () => {
+  if (phase === "reveal") return next();
+  if (phase === "guess"){
+    if ($("map").hidden){ show("map"); return; }
+    if (pin) reveal();
+  }
+};
+$("swapBtn").onclick = () => show($("map").hidden ? "map" : "sv");
+$("lookBtn").onclick = () => {
+  const off = $("shield").classList.toggle("off");
+  $("lookBtn").textContent = off ? "Lock view" : "Look around";
+  if (off) toast("Pan only, please. No walking!");
+};
+$("country").onchange = () => { try{localStorage.setItem(KEY+".c", $("country").value);}catch{}; next(); };
+
+$("statsBtn").onclick = () => {
+  const agg = {};
+  for (const r of rounds){ const a = agg[r.c] ||= {n:0, hp:0, seen:0, best:0}; a.n++; a.hp += r.hp; if (st[r.id]){ a.seen++; a.best += st[r.id].best; } }
+  const list = Object.entries(agg).sort((a,b)=>b[1].hp-a[1].hp).slice(0, 25);
+  const max = list[0]?.[1].hp || 1;
+  $("statsBody").innerHTML = `<div style="overflow-x:auto"><table><tr><th>Country</th><th>Rounds</th><th>HP lost</th><th>Drilled</th><th>Drill avg</th></tr>${
+    list.map(([c,a]) => `<tr><td>${cname(c)}</td><td>${a.n}</td><td class="barcell"><span style="width:${(a.hp/max*100).toFixed(0)}%"></span><em>${a.hp.toLocaleString("en")}</em></td><td>${a.seen}</td><td>${a.seen?Math.round(a.best/a.seen).toLocaleString("en"):"–"}</td></tr>`).join("")}</table></div>`;
+  $("stats").showModal();
+};
+
+fetch("rounds.json").then(r => r.json()).then(data => {
+  rounds = data;
+  const counts = {}; rounds.forEach(r => counts[r.c] = (counts[r.c]||0) + r.hp);
+  Object.entries(counts).sort((a,b)=>b[1]-a[1]).forEach(([c, hp]) => {
+    const o = document.createElement("option"); o.value = c; o.textContent = `${cname(c)} (−${Math.round(hp/1000)}k HP)`; $("country").append(o);
+  });
+  try { const c = localStorage.getItem(KEY+".c"); if (c && counts[c]) $("country").value = c; } catch {}
+  next();
+}).catch(() => toast("Could not load the rounds file."));
+</script>
+</body>
+</html>
