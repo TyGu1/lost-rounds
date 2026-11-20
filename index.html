@@ -89,7 +89,7 @@ th{color:var(--muted);font-weight:500}
 <div class="actions">
   <button class="btn" id="lookBtn">Look around</button>
   <button class="btn" id="swapBtn">Map</button>
-  <button class="btn primary" id="mainBtn" disabled>Place a pin</button>
+  <button class="btn primary" id="mainBtn">Guess on map</button>
 </div>
 
 <dialog id="stats"><h2>Where you bleed HP</h2><div id="statsBody"></div>
@@ -163,7 +163,7 @@ function next(){
   $("hpInfo").textContent = `−${cur.hp.toLocaleString("en")} HP`;
   $("frame").src = `https://www.google.com/maps/embed?pb=!4v1!6m8!1m7!1s${encodeURIComponent(cur.pano)}!2m2!1d${cur.lat}!2d${cur.lng}!3f${cur.h}!4f${cur.p}!5f0.78`;
   $("shield").classList.remove("off"); $("lookBtn").textContent = "Look around";
-  $("mainBtn").disabled = true; $("mainBtn").textContent = "Place a pin";
+  $("mainBtn").disabled = false; $("mainBtn").textContent = "Guess on map";
   map.setView([20, 0], 2);
   show("sv");
 }
@@ -207,11 +207,11 @@ function reveal(){
 $("mainBtn").onclick = () => {
   if (phase === "reveal") return next();
   if (phase === "guess"){
-    if ($("map").hidden){ show("map"); return; }
+    if ($("map").hidden){ show("map"); if (!pin){ $("mainBtn").disabled = true; $("mainBtn").textContent = "Tap the map"; } return; }
     if (pin) reveal();
   }
 };
-$("swapBtn").onclick = () => show($("map").hidden ? "map" : "sv");
+$("swapBtn").onclick = () => { show($("map").hidden ? "map" : "sv"); if (phase==="guess"){ const m=!$("map").hidden; $("mainBtn").disabled = m && !pin; $("mainBtn").textContent = pin ? "Lock in" : m ? "Tap the map" : "Guess on map"; } };
 $("lookBtn").onclick = () => {
   const off = $("shield").classList.toggle("off");
   $("lookBtn").textContent = off ? "Lock view" : "Look around";
