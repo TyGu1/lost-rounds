@@ -30,6 +30,8 @@ button,select,input,textarea{font:inherit;color:inherit}
 select{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:5px 8px;max-width:46vw}
 .stage{position:relative;flex:1;min-height:0}
 .view{position:absolute;inset:0}
+#sv{z-index:1}
+#map{z-index:2}
 #sv iframe{width:100%;height:100%;border:0;display:block}
 .mask{position:absolute;z-index:3;background:var(--bg);pointer-events:auto}
 #maskAddr{left:0;top:0;width:290px;height:90px;border-bottom-right-radius:12px}
@@ -65,7 +67,7 @@ th{color:var(--muted);font-weight:500}
 </head>
 <body>
 <div class="bar">
-  <div class="brand">Lost <b>Rounds</b> <small style="font:500 11px var(--body);color:var(--muted)">v4</small></div>
+  <div class="brand">Lost <b>Rounds</b> <small style="font:500 11px var(--body);color:var(--muted)">v5</small></div>
   <select id="country" aria-label="Filter by country"><option value="">All countries</option></select>
   <span class="chip" id="queueInfo">…</span>
   <span class="chip hp" id="hpInfo" title="HP you lost in the real duel">−0 HP</span>
@@ -143,9 +145,10 @@ map.on("click", e => {
 
 function show(view){
   const isMap = view === "map";
-  $("map").hidden = !isMap; $("sv").hidden = isMap;
+  $("map").hidden = !isMap;
   $("swapBtn").textContent = isMap ? "Street View" : "Map";
   if (isMap) setTimeout(()=>map.invalidateSize(), 0);
+  else if (sv) setTimeout(()=>google.maps.event.trigger(sv, "resize"), 0);
 }
 
 function next(){
@@ -232,6 +235,15 @@ window.gm_authFailure = () => { svFailed = true; showPano(); toast("Google key r
 (() => { const sc = document.createElement("script");
   sc.src = "https://maps.googleapis.com/maps/api/js?key=AIzaSyAyraJjJuX2AJwRYt2AyXalEMnQyBJysUY&callback=initSV&v=weekly&loading=async";
   sc.async = true; sc.onerror = () => { svFailed = true; showPano(); }; document.head.append(sc); })();
+// Keyboard: Space / Enter = main action (next round, lock in, open map). M = toggle map.
+document.addEventListener("keydown", e => {
+  const t = e.target;
+  if (t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.tagName === "SELECT")) return;
+  if (e.key === " " || e.key === "Enter"){
+    e.preventDefault(); if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    if (!$("mainBtn").disabled) $("mainBtn").click();
+  } else if (e.key === "m" || e.key === "M"){ $("swapBtn").click(); }
+}, true);
 $("country").onchange = () => { try{localStorage.setItem(KEY+".c", $("country").value);}catch{}; next(); };
 
 $("statsBtn").onclick = () => {
