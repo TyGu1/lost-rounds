@@ -37,6 +37,10 @@ select{background:var(--bg);border:1px solid var(--line);border-radius:8px;paddi
 #maskAddr{left:0;top:0;width:290px;height:90px;border-bottom-right-radius:12px}
 #maskLink{left:0;bottom:0;width:150px;height:26px}
 #map{background:#cfd8d3}
+/* Guess phase: small see-through preview bottom-right; hover (or tap) grows it to 90% of the screen at 90% opacity. */
+#map[data-mode=mini]{inset:auto 64px 12px auto;width:min(320px,42vw);height:min(220px,32vh);opacity:.45;border:2px solid rgba(255,255,255,.7);border-radius:10px;z-index:4;cursor:pointer;transition:opacity .15s}
+#map[data-mode=mini]:hover{opacity:.7}
+#map[data-mode=big]{position:fixed;inset:5vh auto auto 5vw;width:90vw;height:90vh;opacity:.9;border:2px solid #fff;border-radius:12px;z-index:700;box-shadow:0 12px 40px rgba(0,0,0,.6);cursor:crosshair}
 .actions{display:flex;gap:8px;padding:10px max(12px,env(safe-area-inset-left,0px)) 10px max(12px,env(safe-area-inset-right,0px));background:var(--panel);border-top:1px solid var(--line);align-items:center}
 .btn{border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:12px 14px;font-weight:600;cursor:pointer;min-height:46px}
 .btn.primary{background:var(--accent);color:#1b1500;border-color:var(--accent);flex:1;font-family:var(--display);font-size:20px;text-transform:uppercase;letter-spacing:.04em;padding:8px 14px}
@@ -67,7 +71,7 @@ th{color:var(--muted);font-weight:500}
 </head>
 <body>
 <div class="bar">
-  <div class="brand">Lost <b>Rounds</b> <small style="font:500 11px var(--body);color:var(--muted)">v5</small></div>
+  <div class="brand">Lost <b>Rounds</b> <small style="font:500 11px var(--body);color:var(--muted)">v6</small></div>
   <select id="country" aria-label="Filter by country"><option value="">All countries</option></select>
   <span class="chip" id="queueInfo">…</span>
   <span class="chip hp" id="hpInfo" title="HP you lost in the real duel">−0 HP</span>
@@ -99,8 +103,7 @@ th{color:var(--muted);font-weight:500}
 const $ = id => document.getElementById(id);
 const KEY = "lostrounds.v1";
 const DAY = 864e5;
-const INTERVALS = [1, 3, 7, 21, 60]; // days per level after a good guess
-const GOOD = 4000;                   // score that counts as "got it"
+const GOOD = 4000;                   // score that counts as "got it": round moves to the end of the queue
 const names = new Intl.DisplayNames(["en"], {type: "region"});
 const cname = c => { try { return names.of(c.toUpperCase()); } catch { return c.toUpperCase(); } };
 
@@ -118,16 +121,22 @@ function km(a, b){
 const score = d => Math.round(5000*Math.exp(-d/1492.7));
 const fmtKm = d => d < 1 ? Math.round(d*1000)+" m" : d < 100 ? d.toFixed(1)+" km" : Math.round(d).toLocaleString("en")+" km";
 
-// ---- queue: due repeats first, then new rounds (biggest HP loss first) ----
+// ---- queue: misses due again, then new rounds (biggest HP loss first), then misses still cooling down,
+//      and last the rounds whose latest attempt scored 4000+ (longest ago first) ----
 function pick(){
   const c = $("country").value, now = Date.now();
   const pool = rounds.filter(r => !c || r.c === c);
-  const due = pool.filter(r => st[r.id] && st[r.id].due <= now).sort((a,b)=>st[a.id].due-st[b.id].due);
+  const played = pool.filter(r => st[r.id]);
+  const good = r => (st[r.id].last ?? st[r.id].best ?? 0) >= GOOD;
+  const when = r => st[r.id].at ?? st[r.id].due ?? 0;
+  const miss = played.filter(r => !good(r)).sort((a,b)=>st[a.id].due-st[b.id].due);
+  const due = miss.filter(r => st[r.id].due <= now), cooling = miss.filter(r => st[r.id].due > now);
   const fresh = pool.filter(r => !st[r.id]).sort((a,b)=>b.hp-a.hp);
-  $("queueInfo").textContent = `${due.length} due · ${fresh.length} new`;
+  const done = played.filter(good).sort((a,b)=>when(a)-when(b));
+  $("queueInfo").textContent = `${miss.length} to retry · ${fresh.length} new · ${done.length} at 4000+`;
   if (due.length) return due[0];
   if (fresh.length) return fresh[Math.floor(Math.random()*Math.min(20, fresh.length))];
-  return null;
+  return cooling[0] || done[0] || null;
 }
 
 // ---- map ----
@@ -137,18 +146,34 @@ L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",
 L.control.zoom({position:"bottomright"}).addTo(map);
 const icon = col => L.divIcon({className:"", iconSize:[18,18], iconAnchor:[9,9],
   html:`<div style="width:18px;height:18px;border-radius:50%;background:${col};border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.5)"></div>`});
+let mapMode = "mini", bigAt = 0, pinnedBig = false, shrinkT = 0;
 map.on("click", e => {
   if (phase !== "guess") return;
+  if (mapMode === "mini"){ pinnedBig = true; setMode("big"); return; }   // touch: first tap only opens the map
+  if (Date.now() - bigAt < 350) return;                                   // ignore the tap that opened it
   if (pin) pin.setLatLng(e.latlng); else pin = L.marker(e.latlng, {icon: icon("var(--pin)")}).addTo(map);
-  $("mainBtn").disabled = false; $("mainBtn").textContent = "Lock in";
+  updateMain();
 });
+$("map").addEventListener("mouseenter", () => { clearTimeout(shrinkT); if (phase === "guess" && mapMode === "mini") setMode("big"); });
+$("map").addEventListener("mouseleave", () => { if (phase === "guess" && mapMode === "big" && !pinnedBig) shrinkT = setTimeout(() => setMode("mini"), 250); });
 
-function show(view){
-  const isMap = view === "map";
-  $("map").hidden = !isMap;
-  $("swapBtn").textContent = isMap ? "Street View" : "Map";
-  if (isMap) setTimeout(()=>map.invalidateSize(), 0);
-  else if (sv) setTimeout(()=>google.maps.event.trigger(sv, "resize"), 0);
+// Modes: mini = preview while guessing, big = 90% overlay while guessing, full = reveal map, hidden = Street View only.
+function setMode(m){
+  const el = $("map"); clearTimeout(shrinkT);
+  if (m !== "big") pinnedBig = false;
+  if (m === "big" && mapMode !== "big") bigAt = Date.now();
+  mapMode = m; el.hidden = m === "hidden"; el.dataset.mode = m;
+  $("swapBtn").textContent = (m === "big" || m === "full") ? "Street View" : "Map";
+  setTimeout(() => map.invalidateSize({pan:false}), 0); setTimeout(() => map.invalidateSize({pan:false}), 200);
+  if (sv && (m === "hidden" || m === "mini")) setTimeout(() => google.maps.event.trigger(sv, "resize"), 0);
+  updateMain();
+}
+function updateMain(){
+  if (phase !== "guess") return;
+  const b = $("mainBtn");
+  if (pin){ b.disabled = false; b.textContent = "Lock in"; }
+  else if (mapMode === "big"){ b.disabled = true; b.textContent = "Click the map"; }
+  else { b.disabled = false; b.textContent = "Guess on map"; }
 }
 
 function next(){
@@ -156,23 +181,21 @@ function next(){
   if (pin){ map.removeLayer(pin); pin = null; }
   $("result").hidden = true;
   cur = pick();
-  if (!cur){ $("frame").removeAttribute("src"); $("mainBtn").disabled = true; $("mainBtn").textContent = "All done here"; toast("Nothing due. Pick another country or come back tomorrow."); return; }
+  if (!cur){ $("frame").removeAttribute("src"); setMode("hidden"); $("mainBtn").disabled = true; $("mainBtn").textContent = "All done here"; toast("No rounds for this filter."); return; }
   phase = "guess";
   $("hpInfo").textContent = `−${cur.hp.toLocaleString("en")} HP`;
   showPano();
-  $("mainBtn").disabled = false; $("mainBtn").textContent = "Guess on map";
   map.setView([20, 0], 2);
-  show("sv");
+  setMode("mini");
 }
 
 function reveal(){
   phase = "reveal";
   const truth = [cur.lat, cur.lng], g = [pin.getLatLng().lat, pin.getLatLng().lng];
   const d = km(g, truth), s = score(d);
-  const prev = st[cur.id] || {lvl:0, n:0, best:0, note:""};
-  const lvl = s >= GOOD ? Math.min(prev.lvl+1, INTERVALS.length) : 0;
-  const due = s >= GOOD ? Date.now() + INTERVALS[lvl-1]*DAY : Date.now() + 10*60e3;
-  st[cur.id] = {...prev, lvl, due, n: prev.n+1, best: Math.max(prev.best, s), last: s};
+  const prev = st[cur.id] || {n:0, best:0, note:""};
+  const due = Date.now() + (s >= GOOD ? 0 : 10*60e3);
+  st[cur.id] = {...prev, due, at: Date.now(), n: prev.n+1, best: Math.max(prev.best, s), last: s};
   save();
 
   const add = l => (layers.push(l.addTo(map)), l);
@@ -181,7 +204,7 @@ function reveal(){
   const pts = [g, truth];
   if (cur.g){ add(L.marker(cur.g, {icon: icon("var(--bad)")}).bindTooltip("Your duel guess")); add(L.polyline([cur.g, truth], {color:"#ef5a4c", weight:1.5, opacity:.6})); pts.push(cur.g); }
   if (cur.og){ add(L.circleMarker(cur.og, {radius:6, color:"#fff", weight:2, fillColor:"#8a6cff", fillOpacity:1}).bindTooltip("Opponent")); pts.push(cur.og); }
-  show("map"); 
+  setMode("full");
 
   const then = cur.g ? km(cur.g, truth) : null;
   const verdict = then == null ? "" : d < then ? `<strong style="color:var(--good)">${fmtKm(then-d)} closer</strong> than in the duel` : `${fmtKm(d-then)} further than in the duel`;
@@ -194,7 +217,7 @@ function reveal(){
     <label for="note" style="font-size:12px;color:var(--muted)">What gives it away? (saved on this device)</label>
     <textarea id="note" placeholder="e.g. yellow sign backs, red-white bollards">${(prev.note||"").replace(/</g,"&lt;")}</textarea>
     <div class="row"><a href="https://www.google.com/maps/@?api=1&map_action=pano&pano=${encodeURIComponent(cur.pano)}&heading=${cur.h}" target="_blank" rel="noopener">Open in Google Maps</a>
-      <span>${s>=GOOD ? `Back in ${INTERVALS[lvl-1]} day${INTERVALS[lvl-1]>1?"s":""}` : "Comes back in 10 min"} · ${cur.t} · ${cur.m}</span></div>`;
+      <span>${s>=GOOD ? "4000+: moved to the end of the queue" : "Comes back in 10 min"} · ${cur.t} · ${cur.m}</span></div>`;
   r.hidden = false;
   map.fitBounds(L.latLngBounds(pts), {maxZoom: 9, paddingTopLeft:[30, r.offsetHeight + 40], paddingBottomRight:[30, 30]});
   $("note").addEventListener("input", e => { st[cur.id].note = e.target.value; save(); });
@@ -204,11 +227,14 @@ function reveal(){
 $("mainBtn").onclick = () => {
   if (phase === "reveal") return next();
   if (phase === "guess"){
-    if ($("map").hidden){ show("map"); if (!pin){ $("mainBtn").disabled = true; $("mainBtn").textContent = "Tap the map"; } return; }
-    if (pin) reveal();
+    if (pin) return reveal();
+    pinnedBig = true; setMode("big");
   }
 };
-$("swapBtn").onclick = () => { show($("map").hidden ? "map" : "sv"); if (phase==="guess"){ const m=!$("map").hidden; $("mainBtn").disabled = m && !pin; $("mainBtn").textContent = pin ? "Lock in" : m ? "Tap the map" : "Guess on map"; } };
+$("swapBtn").onclick = () => {
+  if (phase === "guess"){ if (mapMode === "big") setMode("mini"); else { setMode("big"); pinnedBig = true; } }
+  else setMode(mapMode === "full" ? "hidden" : "full");
+};
 // ---- Street View: Maps JS API, look around but no walking; embed as fallback ----
 let sv = null, svFailed = false;
 function showPano(){
@@ -226,6 +252,7 @@ window.initSV = () => {
     keyboardShortcuts: false, addressControl: false, showRoadLabels: false, imageDateControl: false,
     fullscreenControl: false, motionTracking: false, motionTrackingControl: false, panControl: false,
     enableCloseButton: false, zoomControl: true, visible: false,
+    zoomControlOptions: {position: google.maps.ControlPosition.RIGHT_TOP},   // keep bottom-right free for the map preview
   });
   // Belt and braces: if the pano ever changes away from the round's (walking), snap back.
   sv.addListener("pano_changed", () => { if (cur && sv.getPano() !== cur.pano) sv.setPano(cur.pano); });
