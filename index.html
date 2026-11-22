@@ -71,7 +71,7 @@ th{color:var(--muted);font-weight:500}
 </head>
 <body>
 <div class="bar">
-  <div class="brand">Lost <b>Rounds</b> <small style="font:500 11px var(--body);color:var(--muted)">v6</small></div>
+  <div class="brand">Lost <b>Rounds</b> <small style="font:500 11px var(--body);color:var(--muted)">v7</small></div>
   <select id="country" aria-label="Filter by country"><option value="">All countries</option></select>
   <span class="chip" id="queueInfo">…</span>
   <span class="chip hp" id="hpInfo" title="HP you lost in the real duel">−0 HP</span>
@@ -84,6 +84,7 @@ th{color:var(--muted);font-weight:500}
     <iframe id="frame" title="Street View" referrerpolicy="no-referrer-when-downgrade" allowfullscreen hidden style="position:absolute;inset:0"></iframe>
     <div class="mask" id="maskAddr" hidden></div>
   </div>
+  <div id="backdrop" hidden style="position:absolute;inset:0;z-index:650"></div>
   <div class="view" id="map" hidden></div>
   <div class="result" id="result" hidden></div>
   <div class="toast" id="toast" hidden></div>
@@ -150,19 +151,21 @@ let mapMode = "mini", bigAt = 0, pinnedBig = false, shrinkT = 0;
 map.on("click", e => {
   if (phase !== "guess") return;
   if (mapMode === "mini"){ pinnedBig = true; setMode("big"); return; }   // touch: first tap only opens the map
-  if (Date.now() - bigAt < 350) return;                                   // ignore the tap that opened it
+  if (Date.now() - bigAt < 200) return;                                   // ignore the tap that opened it
   if (pin) pin.setLatLng(e.latlng); else pin = L.marker(e.latlng, {icon: icon("var(--pin)")}).addTo(map);
   updateMain();
 });
 $("map").addEventListener("mouseenter", () => { clearTimeout(shrinkT); if (phase === "guess" && mapMode === "mini") setMode("big"); });
 $("map").addEventListener("mouseleave", () => { if (phase === "guess" && mapMode === "big" && !pinnedBig) shrinkT = setTimeout(() => setMode("mini"), 250); });
 
+// Click (or tap) beside the big map: an invisible layer over Street View catches it and shrinks the map back.
+$("backdrop").addEventListener("pointerdown", e => { e.preventDefault(); if (mapMode === "big") setMode("mini"); });
 // Modes: mini = preview while guessing, big = 90% overlay while guessing, full = reveal map, hidden = Street View only.
 function setMode(m){
   const el = $("map"); clearTimeout(shrinkT);
   if (m !== "big") pinnedBig = false;
   if (m === "big" && mapMode !== "big") bigAt = Date.now();
-  mapMode = m; el.hidden = m === "hidden"; el.dataset.mode = m;
+  mapMode = m; el.hidden = m === "hidden"; el.dataset.mode = m; $("backdrop").hidden = m !== "big";
   $("swapBtn").textContent = (m === "big" || m === "full") ? "Street View" : "Map";
   setTimeout(() => map.invalidateSize({pan:false}), 0); setTimeout(() => map.invalidateSize({pan:false}), 200);
   if (sv && (m === "hidden" || m === "mini")) setTimeout(() => google.maps.event.trigger(sv, "resize"), 0);
